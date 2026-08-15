@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CoastSentinel AI — Coastal Health Command Center</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Leaflet CSS & Core JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Leaflet Heatmap Plugin -->
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+
+  <!-- Chart.js for Live Analytics Visualizations -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #060d15;
+    }
+    .font-serif {
+      font-family: 'Instrument Serif', Georgia, serif;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    .city-scroll::-webkit-scrollbar {
+      width: 5px;
+    }
+    .city-scroll::-webkit-scrollbar-track {
+      background: #08111a;
+    }
+    .city-scroll::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen flex flex-col selection:bg-teal-500 selection:text-slate-950">
+
+  <!-- Navigation Header -->
+  <header class="w-full bg-[#060d15] border-b border-slate-800/80 px-8 py-4 flex flex-wrap items-center justify-between sticky top-0 z-50">
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-2.5 h-2.5 rounded-full bg-teal-400 animate-pulse"></div>
+        <span class="text-2xl font-serif text-white tracking-wide">
+          CoastSentinel <span class="text-teal-400 font-sans font-medium text-lg">AI</span>
+        </span>
+      </div>
+      <span id="server-status" class="text-xs font-mono text-amber-400 bg-slate-900 px-2.5 py-1 rounded-full border border-slate-800">
+        Checking ML Status...
+      </span>
+    </div>
+
+    <nav class="flex items-center gap-8 mt-2 sm:mt-0">
+      <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn text-sm font-medium transition-colors pb-1 border-b-2 text-teal-400 border-teal-400">
+        Dashboard
+      </button>
+      <button onclick="switchTab('citizen')" id="nav-citizen" class="nav-btn text-sm font-medium transition-colors pb-1 border-b-2 text-slate-400 border-transparent hover:text-slate-200">
+        Citizen Report
+      </button>
+      <button onclick="switchTab('ngo')" id="nav-ngo" class="nav-btn text-sm font-medium transition-colors pb-1 border-b-2 text-slate-400 border-transparent hover:text-slate-200">
+        NGO Portal
+      </button>
+      <button onclick="switchTab('analytics')" id="nav-analytics" class="nav-btn text-sm font-medium transition-colors pb-1 border-b-2 text-slate-400 border-transparent hover:text-slate-200">
+        Analytics & Statistics
+      </button>
+    </nav>
+  </header>
+
+  <!-- Main Workspace Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6">
+
+    <!-- ================= TAB 1: DASHBOARD ================= -->
+    <section id="tab-dashboard" class="tab-content active space-y-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
+        <div>
+          <h1 class="text-3xl font-serif text-white mb-1">Coastal Health Command Center</h1>
+          <p class="text-slate-400 text-xs sm:text-sm">
+            Live telemetry for coastal erosion risk (<span class="text-rose-400 font-semibold">CERI</span>) & plastic density (<span class="text-teal-400 font-semibold">PPDS</span>).
+          </p>
+        </div>
+        <div class="flex items-center gap-3">
+          <label for="site-select" class="text-xs text-slate-400">Quick Select:</label>
+          <select id="site-select" class="bg-[#08111a] text-xs text-teal-300 border border-slate-700 px-3 py-1.5 rounded-lg focus:outline-none">
+            <option value="vizag">Visakhapatnam, AP</option>
+            <option value="mumbai">Mumbai Coast, MH</option>
+            <option value="digha">Digha Sea Beach, WB</option>
+            <option value="goa">Panaji Coast, Goa</option>
+            <option value="chennai">Marina Beach, TN</option>
+            <option value="puri">Puri Beach, OD</option>
+            <option value="kochi">Kochi Coast, KL</option>
+            <option value="mangalore">Mangalore Coast, KA</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- Column 1: Coastal City Selector List (3 cols) -->
+        <div class="lg:col-span-3 bg-[#0c1724] border border-slate-800/90 rounded-2xl p-4 shadow-2xl flex flex-col h-[620px]">
+          <h2 class="text-xs uppercase tracking-wider text-slate-400 font-bold mb-3 flex items-center justify-between">
+            <span>Coastal Sectors</span>
+            <span id="city-count" class="text-teal-400 font-mono text-[10px] bg-teal-950 px-2 py-0.5 rounded-full border border-teal-800/50">8 Cities</span>
+          </h2>
+          <!-- Dynamically populated by script.js -->
+          <div id="city-list" class="city-scroll overflow-y-auto space-y-2 flex-1 pr-1"></div>
+        </div>
+
+        <!-- Column 2: Interactive GIS Map Container (5 cols) -->
+        <div class="lg:col-span-5 bg-[#0c1724] border border-slate-800/90 rounded-2xl p-3 shadow-2xl h-[620px] relative overflow-hidden flex flex-col">
+          <div id="map" class="w-full h-full rounded-xl border border-slate-800/60 z-0"></div>
+        </div>
+
+        <!-- Column 3: Metrics, Predictions & Actions (4 cols) -->
+        <div class="lg:col-span-4 space-y-4 h-[620px] overflow-y-auto pr-1 city-scroll">
+          
+          <!-- Sector Card & Metrics -->
+          <div class="bg-[#0c1724] border border-slate-800/90 rounded-2xl p-4 shadow-xl">
+            <div class="flex justify-between items-start mb-2">
+              <div>
+                <span class="text-[10px] uppercase tracking-wider text-teal-400 font-semibold bg-teal-950/60 border border-teal-800/50 px-2.5 py-0.5 rounded-full">
+                  Selected Hotspot
+                </span>
+                <h2 id="sector-name" class="text-xl font-serif text-white font-bold mt-2">Visakhapatnam</h2>
+                <span id="location-title" class="hidden">Visakhapatnam</span>
+                <p id="beach-name" class="text-xs text-slate-400">RK Beach Sector</p>
+              </div>
+              <span id="risk-badge" class="bg-rose-950/80 text-rose-400 border border-rose-800/60 px-2.5 py-1 rounded-full text-xs font-bold">
+                HIGH
+              </span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mt-3">
+              <div class="bg-[#08111a] p-3 rounded-xl border border-slate-800">
+                <span class="text-[11px] text-slate-400 block mb-1">Erosion (CERI)</span>
+                <div class="flex items-baseline gap-1.5">
+                  <span id="ceri-val" class="text-2xl font-bold text-rose-400 font-mono">0.0</span>
+                  <span class="text-[10px] text-slate-500">/ 100</span>
+                </div>
+              </div>
+
+              <div class="bg-[#08111a] p-3 rounded-xl border border-slate-800">
+                <span class="text-[11px] text-slate-400 block mb-1">Plastic (PPDS)</span>
+                <div class="flex items-baseline gap-1.5">
+                  <span id="ppds-val" class="text-2xl font-bold text-teal-400 font-mono">0.0</span>
+                  <span class="text-[10px] text-slate-500">/ 100</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI Predictions Breakdown Panel -->
+          <div class="bg-[#0c1724] border border-slate-800/90 rounded-2xl p-4 shadow-xl space-y-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-teal-400 flex items-center justify-between">
+              <span>🤖 Live ML Predictions</span>
+              <span class="text-[10px] text-slate-500 font-normal">Random Forest Regressor</span>
+            </h3>
+
+            <div class="p-2.5 bg-[#08111a] rounded-xl border border-slate-800/80 text-xs space-y-1.5">
+              <div class="flex justify-between items-center">
+                <span class="text-slate-400">Shoreline Retreat:</span>
+                <span id="recession-rate" class="font-mono text-amber-400 font-semibold">0.0 m / yr</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="text-slate-400">Composite Risk Index:</span>
+                <span id="overall-risk" class="font-mono text-cyan-400 font-semibold">0.0</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Chart Panel -->
+          <div class="bg-[#0c1724] border border-slate-800/90 rounded-2xl p-4 shadow-xl">
+            <h3 class="text-xs font-semibold mb-2 text-slate-300">Telemetry Breakdown</h3>
+            <canvas id="analyticsChart" class="w-full h-36"></canvas>
+          </div>
+
+          <!-- Emergency Alert Box -->
+          <div class="bg-[#0c1724] border border-slate-800/90 rounded-2xl p-4 shadow-xl">
+            <button onclick="triggerAlert()" id="trigger-alert-btn" class="w-full bg-orange-600 hover:bg-orange-500 text-white font-semibold text-xs px-4 py-2.5 rounded-xl transition shadow-lg flex items-center justify-center gap-2">
+              <span>🚨</span> Dispatch Emergency SMS Alerts
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TAB 2: CITIZEN REPORT ================= -->
+    <section id="tab-citizen" class="tab-content max-w-xl mx-auto">
+      <h1 class="text-3xl font-serif text-white mb-2">Citizen Debris Report</h1>
+      <p class="text-slate-400 text-sm mb-6">Submit geotagged marine plastic debris sightings to alert local clean-up teams.</p>
+      <div id="citizen-banner" class="hidden mb-6 p-4 bg-teal-950/60 border border-teal-500/40 text-teal-300 text-xs rounded-xl"></div>
+
+      <form onsubmit="submitCitizenReport(event)" class="space-y-5 bg-[#0c1724] border border-slate-800/90 p-6 rounded-2xl shadow-2xl">
+        
+        <!-- Location input + Mobile GPS Autofill -->
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-2">Location / Beach Name</label>
+          <div class="flex gap-2">
+            <input type="text" id="report-location" required placeholder="e.g. RK Beach, Visakhapatnam" class="flex-1 bg-[#08111a] border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500" />
+            <button type="button" onclick="getGPSLocation()" class="bg-teal-950 hover:bg-teal-900 border border-teal-600/60 text-teal-300 px-3 py-2 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap">
+              <span>📍</span> Mobile GPS
+            </button>
+          </div>
+          <span id="gps-status" class="text-[10px] text-teal-400 mt-1 block font-mono"></span>
+        </div>
+
+        <!-- Mobile Camera / Image File Upload -->
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-2">Upload Debris Photo (Camera / File)</label>
+          <input type="file" id="report-image" accept="image/*" capture="environment" onchange="previewReportImage(event)" class="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-teal-300 hover:file:bg-slate-700 cursor-pointer bg-[#08111a] border border-slate-800 rounded-lg p-1.5" />
+          
+          <!-- Image Preview Frame -->
+          <div id="image-preview-container" class="hidden mt-3 p-2 bg-[#08111a] border border-slate-800 rounded-xl">
+            <span class="text-[10px] text-slate-400 block mb-1 font-mono">Image Preview:</span>
+            <img id="image-preview" src="#" alt="Debris Preview" class="max-h-48 rounded-lg object-cover w-full" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-2">Debris Description & Density</label>
+          <textarea id="report-desc" required rows="3" placeholder="Describe waste accumulation (e.g. plastic bottles, fishing nets)..." class="w-full bg-[#08111a] border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500"></textarea>
+        </div>
+
+        <button type="submit" class="bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-sm px-6 py-2.5 rounded-lg transition w-full shadow-lg">
+          Submit Geotagged Report
+        </button>
+      </form>
+    </section>
+
+    <!-- ================= TAB 3: NGO PORTAL ================= -->
+    <section id="tab-ngo" class="tab-content max-w-xl mx-auto">
+      <h1 class="text-3xl font-serif text-white mb-2">NGO Registration</h1>
+      <p class="text-slate-400 text-sm mb-6">Register your organization to receive emergency notifications for high-risk zones.</p>
+      <div id="ngo-banner" class="hidden mb-6 p-4 bg-teal-950/60 border border-teal-500/40 text-teal-300 text-xs rounded-xl"></div>
+
+      <form onsubmit="registerNGO(event)" class="space-y-4 bg-[#0c1724] border border-slate-800/90 p-6 rounded-2xl shadow-2xl">
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1.5">NGO Name</label>
+          <input type="text" id="ngo-name" required placeholder="Coastal Protection Org" class="w-full bg-[#08111a] border border-slate-800 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-teal-500" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1.5">NGO Email Address</label>
+          <input type="email" id="ngo-email" required placeholder="contact@coastalngo.org" class="w-full bg-[#08111a] border border-slate-800 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-teal-500" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1.5">NGO Contact No (with country code)</label>
+          <input type="text" id="ngo-phone" required placeholder="+919876543210" class="w-full bg-[#08111a] border border-slate-800 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-teal-500" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1.5">NGO Working Region / Area</label>
+          <select id="ngo-region" required class="w-full bg-[#08111a] border border-slate-800 text-white rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-teal-500">
+            <!-- Dynamically Populated -->
+          </select>
+        </div>
+        <button type="submit" class="bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-sm px-6 py-2.5 rounded-lg transition w-full">
+          Register Organization
+        </button>
+      </form>
+    </section>
+
+    <!-- ================= TAB 4: ANALYTICS & LIVE GRAPHICAL STATISTICS ================= -->
+    <section id="tab-analytics" class="tab-content max-w-7xl mx-auto space-y-6">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+        <div>
+          <h1 class="text-3xl font-serif text-white mb-1">Spatial Density & Visual Analytics</h1>
+          <p class="text-slate-400 text-sm">Real-time statistics, satellite telemetry pass logs, and cross-sector predictive modeling.</p>
+        </div>
+        <div class="flex items-center gap-4 text-xs font-mono bg-[#0c1724] px-4 py-2.5 rounded-xl border border-slate-800">
+          <span class="flex items-center gap-2 text-emerald-400">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            Satellite Sentinel-2 Sync: Active
+          </span>
+          <span class="text-slate-500">|</span>
+          <span class="text-slate-400">Revisit ETA: 3 Hrs</span>
+        </div>
+      </div>
+
+      <!-- High Viewport Heatmap Map -->
+      <div class="bg-[#0c1724] border border-slate-800/90 rounded-2xl p-4 shadow-2xl">
+        <h2 class="text-xs uppercase tracking-wider text-slate-400 font-bold mb-3 flex items-center justify-between">
+          <span>High-Resolution Plastic Density & Erosion Heatmap</span>
+          <span class="text-teal-400 text-[10px] font-mono">Expanded Viewport</span>
+        </h2>
+        <div id="analytics-heatmap" class="w-full h-[500px] rounded-xl border border-slate-800/80 z-0"></div>
+      </div>
+
+      <!-- Analytics Chart Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        
+        <div class="bg-[#0c1724] border border-slate-800/90 rounded-2xl p-5 shadow-2xl flex flex-col justify-between">
+          <div>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-teal-400 mb-1">Plastic Accumulation (PPDS)</h3>
+            <p class="text-[11px] text-slate-400 mb-4">Cross-city plastic debris concentration levels.</p>
+          </div>
+          <div class="relative h-60">
+            <canvas id="ppdsBarChart"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-[#0c1724] border border-slate-800/90 rounded-2xl p-5 shadow-2xl flex flex-col justify-between">
+          <div>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-rose-400 mb-1">12-Month Erosion Trajectory</h3>
+            <p class="text-[11px] text-slate-400 mb-4">Historical vs. projected shoreline recession rates.</p>
+          </div>
+          <div class="relative h-60">
+            <canvas id="erosionLineChart"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-[#0c1724] border border-slate-800/90 rounded-2xl p-5 shadow-2xl flex flex-col justify-between">
+          <div>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-amber-400 mb-1">Risk Severity Distribution</h3>
+            <p class="text-[11px] text-slate-400 mb-4">Percentage of coastal sectors per risk tier.</p>
+          </div>
+          <div class="relative h-60 flex items-center justify-center">
+            <canvas id="riskDoughnutChart"></canvas>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
