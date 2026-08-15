@@ -54,7 +54,7 @@ const COASTAL_SITES = {
     }
 };
 
-let mainMap, analyticsMap, mainHeatLayer, analyticsHeatLayer;
+let mainMap, analyticsMap, mainHeatLayer, analyticsHeatLayer, mainErosionLayer;
 let riskChart, ppdsBarChart, erosionLineChart, riskDoughnutChart;
 let activeSiteKey = "vizag";
 
@@ -166,6 +166,7 @@ async function loadSiteData(siteKey) {
             const preds = data.predictions;
             updateDashboardUI(site.name, site.beach, preds);
             updateMapHeatmap(site.coords, preds.ppds_score);
+            updateErosionOverlay(site.coords, preds.ceri_score);
             if (riskChart) {
                 riskChart.data.datasets[0].data = [preds.ceri_score, preds.ppds_score, preds.overall_risk_score];
                 riskChart.update();
@@ -178,6 +179,7 @@ async function loadSiteData(siteKey) {
         const mockOverall = ((parseFloat(mockCERI) + parseFloat(mockPPDS)) / 2).toFixed(1);
         updateDashboardUI(site.name, site.beach, { ceri_score: mockCERI, ppds_score: mockPPDS, overall_risk_score: mockOverall, shoreline_retreat_m: (mockCERI * 0.04).toFixed(2), threat_level: mockOverall > 60 ? "HIGH" : "MODERATE" });
         updateMapHeatmap(site.coords, mockPPDS);
+        updateErosionOverlay(site.coords, parseFloat(mockCERI));
     }
 }
 
@@ -214,7 +216,55 @@ function updateMapHeatmap(coords, ppdsScore) {
     }
     if (typeof L.heatLayer === "function") {
         mainHeatLayer = L.heatLayer(heatPoints, { radius: 25, blur: 15, maxZoom: 14 }).addTo(mainMap);
+        if (!document.getElementById("toggle-plastic-layer")?.checked) mainMap.removeLayer(mainHeatLayer);
     }
+}
+
+// -------------------------------------------------------------------
+// Erosion Risk Band Overlay (Phase 2 — CERI dual-overlay)
+// -------------------------------------------------------------------
+function updateErosionOverlay(coords, ceriScore) {
+    if (mainErosionLayer) mainMap.removeLayer(mainErosionLayer);
+
+    const color = ceriScore >= 75 ? "#dc2626" : ceriScore >= 45 ? "#f59e0b" : "#10b981";
+    const bandRadiusM = 400 + (ceriScore / 100) * 1400; // higher risk -> wider affected band
+
+    // Model the erosion-risk band as a short arc of overlapping circles along the coast,
+    // distinct in style (dashed rose ring) from the plastic pollution heatmap.
+    const segments = 6;
+    const layers = [];
+    for (let i = 0; i < segments; i++) {
+        const angle = (i / (segments - 1) - 0.5) * 0.6; // spread along a rough coastline arc
+        const lat = coords[0] + Math.sin(angle) * 0.025;
+        const lng = coords[1] + Math.cos(angle) * 0.025;
+        layers.push(
+            L.circle([lat, lng], {
+                radius: bandRadiusM,
+                color: color,
+                weight: 1.5,
+                dashArray: "4 4",
+                fillColor: color,
+                fillOpacity: 0.12
+            })
+        );
+    }
+
+    mainErosionLayer = L.layerGroup(layers);
+    if (document.getElementById("toggle-erosion-layer")?.checked !== false) {
+        mainErosionLayer.addTo(mainMap);
+    }
+}
+
+function togglePlasticLayer(visible) {
+    if (!mainHeatLayer) return;
+    if (visible) mainMap.addLayer(mainHeatLayer);
+    else mainMap.removeLayer(mainHeatLayer);
+}
+
+function toggleErosionLayer(visible) {
+    if (!mainErosionLayer) return;
+    if (visible) mainMap.addLayer(mainErosionLayer);
+    else mainMap.removeLayer(mainErosionLayer);
 }
 
 // -------------------------------------------------------------------
@@ -353,14 +403,34 @@ function previewReportImage(event) {
     }
 }
 
-function submitCitizenReport(event) {
+async function submitCitizenReport(event) {
     event.preventDefault();
     const banner = document.getElementById("citizen-banner");
-    if (banner) {
-        banner.classList.remove("hidden");
-        banner.innerHTML = "✅ <strong>Report Submitted Successfully!</strong> Geotagged telemetry and attached imagery queued for cleanup dispatch.";
+    const location = document.getElementById("report-location")?.value;
+    const description = document.getElementById("report-desc")?.value;
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/report_issue`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "Plastic Debris", location, description })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.message || "Submission failed");
+
+        if (banner) {
+            banner.classList.remove("hidden");
+            banner.className = "mb-6 p-4 bg-teal-950/60 border border-teal-500/40 text-teal-300 text-xs rounded-xl";
+            banner.innerHTML = `✅ <strong>Report Submitted Successfully!</strong> Reference #${data.id} queued for cleanup dispatch.`;
+        }
         event.target.reset();
         document.getElementById("image-preview-container")?.classList.add("hidden");
+    } catch (err) {
+        if (banner) {
+            banner.classList.remove("hidden");
+            banner.className = "mb-6 p-4 bg-rose-950/60 border border-rose-500/40 text-rose-300 text-xs rounded-xl";
+            banner.innerHTML = `❌ <strong>Submission Failed:</strong> ${err.message}. Is the backend running on ${API_BASE_URL}?`;
+        }
     }
 }
 
@@ -389,13 +459,36 @@ async function checkServerHealth() {
     }
 }
 
-function registerNGO(event) {
+async function registerNGO(event) {
     event.preventDefault();
     const banner = document.getElementById("ngo-banner");
-    if (banner) {
-        banner.classList.remove("hidden");
-        banner.innerHTML = "✅ <strong>NGO Registered!</strong> You will receive automated SMS notifications for high-risk alerts.";
+    const name = document.getElementById("ngo-name")?.value;
+    const email = document.getElementById("ngo-email")?.value;
+    const phone = document.getElementById("ngo-phone")?.value;
+    const regionKey = document.getElementById("ngo-region")?.value;
+    const focus_area = COASTAL_SITES[regionKey]?.name || regionKey;
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/register_ngo`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, email, phone, focus_area })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || data.error || "Registration failed");
+
+        if (banner) {
+            banner.classList.remove("hidden");
+            banner.className = "mb-6 p-4 bg-teal-950/60 border border-teal-500/40 text-teal-300 text-xs rounded-xl";
+            banner.innerHTML = "✅ <strong>NGO Registered!</strong> You will receive automated SMS notifications for high-risk alerts.";
+        }
         event.target.reset();
+    } catch (err) {
+        if (banner) {
+            banner.classList.remove("hidden");
+            banner.className = "mb-6 p-4 bg-rose-950/60 border border-rose-500/40 text-rose-300 text-xs rounded-xl";
+            banner.innerHTML = `❌ <strong>Registration Failed:</strong> ${err.message}`;
+        }
     }
 }
 

@@ -122,8 +122,19 @@
 
         <!-- Column 2: Interactive GIS Map Container (5 cols) -->
         <div class="lg:col-span-5 bg-[#0c1724] border border-slate-800/90 rounded-2xl p-3 shadow-2xl h-[620px] relative overflow-hidden flex flex-col">
+          <div class="absolute top-6 right-6 z-[400] flex flex-col gap-2">
+            <label class="flex items-center gap-2 bg-[#0c1724]/90 border border-slate-800 rounded-lg px-3 py-1.5 text-[11px] text-slate-200 cursor-pointer shadow-lg backdrop-blur">
+              <input type="checkbox" id="toggle-plastic-layer" checked onchange="togglePlasticLayer(this.checked)" class="accent-teal-400" />
+              Plastic Pollution Heatmap
+            </label>
+            <label class="flex items-center gap-2 bg-[#0c1724]/90 border border-slate-800 rounded-lg px-3 py-1.5 text-[11px] text-slate-200 cursor-pointer shadow-lg backdrop-blur">
+              <input type="checkbox" id="toggle-erosion-layer" checked onchange="toggleErosionLayer(this.checked)" class="accent-rose-400" />
+              Erosion Risk Bands
+            </label>
+          </div>
           <div id="map" class="w-full h-full rounded-xl border border-slate-800/60 z-0"></div>
         </div>
+
 
         <!-- Column 3: Metrics, Predictions & Actions (4 cols) -->
         <div class="lg:col-span-4 space-y-4 h-[620px] overflow-y-auto pr-1 city-scroll">

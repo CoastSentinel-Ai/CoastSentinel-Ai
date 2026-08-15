@@ -8,6 +8,7 @@ from flask_cors import CORS
 # Import local database and alert modules
 import database
 import alerts
+import ml_service
 
 app = Flask(__name__)
 CORS(app)  # Enable Cross-Origin Resource Sharing for frontend fetch calls
@@ -124,14 +125,18 @@ def register_ngo():
     """Inserts NGO registration entries into SQLite."""
     data = request.get_json() or {}
     name = data.get('name')
-    focus_area = data.get('focus_area')
     email = data.get('email')
+    phone = data.get('phone')
+    region = data.get('focus_area')  # coastal focus area maps to the 'region' column
 
-    if not name or not email:
-        return jsonify({"error": "Missing required fields"}), 400
+    if not name or not email or not phone or not region:
+        return jsonify({"error": "Missing required fields: name, email, phone, focus_area"}), 400
 
-    record_id = database.add_ngo(name, focus_area, email)
-    return jsonify({"status": "success", "id": record_id}), 201
+    result = database.add_ngo(name, email, phone, region)
+    if not result["success"]:
+        return jsonify({"status": "error", "message": result["error"]}), 409
+
+    return jsonify({"status": "success", "id": result["id"]}), 201
 
 
 @app.route('/api/report_issue', methods=['POST'])
@@ -141,6 +146,9 @@ def report_issue():
     report_type = data.get('type')
     location = data.get('location')
     description = data.get('description')
+
+    if not location or not description:
+        return jsonify({"error": "Missing required fields: location, description"}), 400
 
     record_id = database.add_report(report_type, location, description)
     return jsonify({"status": "success", "id": record_id}), 201
@@ -155,6 +163,59 @@ def trigger_alert():
 
     result = alerts.send_emergency_sms(location, threat_level)
     return jsonify(result), 200
+
+
+@app.route('/api/v1/detect_plastic', methods=['POST'])
+def detect_plastic():
+    """
+    Runs the trained UNet++ segmentation model on a Sentinel-2 GeoTIFF tile and
+    returns GeoJSON polygons for detected marine plastic. Newly detected
+    hotspots are also persisted so they appear on future dashboard loads.
+    """
+    data = request.get_json() or {}
+    image_path = data.get('image_path')
+    if not image_path:
+        return jsonify({"error": "image_path is required"}), 400
+
+    try:
+        geojson = ml_service.run_plastic_detection(image_path)
+    except ml_service.ModelNotTrainedError as e:
+        return jsonify({"status": "error", "message": str(e)}), 503
+    except FileNotFoundError as e:
+        return jsonify({"status": "error", "message": str(e)}), 404
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+    inserted = database.record_detections(geojson)
+
+    return jsonify({
+        "status": "success",
+        "detections_stored": inserted,
+        "geojson": geojson
+    }), 200
+
+
+@app.route('/api/v1/predict_erosion', methods=['POST'])
+def predict_erosion():
+    """
+    Runs the trained CNN-LSTM model on a time-ordered sequence of coastal
+    imagery for one transect and returns an erosion risk score.
+    """
+    data = request.get_json() or {}
+    sequence_dir = data.get('sequence_dir')
+    if not sequence_dir:
+        return jsonify({"error": "sequence_dir is required"}), 400
+
+    try:
+        result = ml_service.run_erosion_prediction(sequence_dir)
+    except ml_service.ModelNotTrainedError as e:
+        return jsonify({"status": "error", "message": str(e)}), 503
+    except FileNotFoundError as e:
+        return jsonify({"status": "error", "message": str(e)}), 404
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+    return jsonify({"status": "success", **result}), 200
 
 
 if __name__ == '__main__':
