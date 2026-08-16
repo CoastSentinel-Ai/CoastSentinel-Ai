@@ -1,4 +1,12 @@
 # backend/app.py
+
+# load_dotenv() MUST run before database/alerts/ml_service are imported below —
+# alerts.py reads TWILIO_* and SMTP_* from the environment at import time, so
+# if .env hasn't been loaded yet, those values are locked in as None forever
+# for this process, no matter how many times you restart afterwards.
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import joblib
 import numpy as np
